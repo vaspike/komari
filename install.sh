@@ -134,16 +134,48 @@ install_nginx() {
     log_ok "Nginx installed"
 }
 
+get_letsencrypt_cert() {
+    local domain="$1"
+    if [ -d "/etc/letsencrypt/live/$domain" ]; then
+        log_ok "Let's Encrypt certificate already exists for $domain"
+        return 0
+    fi
+    log_info "Requesting Let's Encrypt certificate for $domain ..."
+    apt-get install -y -qq certbot 2>/dev/null
+    systemctl stop nginx 2>/dev/null
+    certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$domain" 2>/dev/null && {
+        log_ok "Certificate obtained"
+    } || {
+        log_warn "Let's Encrypt failed, falling back to self-signed"
+        mkdir -p /etc/nginx/ssl
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /etc/nginx/ssl/komari.key \
+            -out /etc/nginx/ssl/komari.crt \
+            -subj "/CN=$domain" 2>/dev/null
+    }
+    systemctl start nginx 2>/dev/null
+}
+
 write_nginx_config() {
     local port="${LISTEN_PORT:-25774}"
     local proxy_port="${NGINX_PORT:-8443}"
 
-    mkdir -p /etc/nginx/ssl
-    if [ ! -f /etc/nginx/ssl/komari.crt ]; then
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-            -keyout /etc/nginx/ssl/komari.key \
-            -out /etc/nginx/ssl/komari.crt \
-            -subj "/CN=komari" 2>/dev/null
+    # Get domain from user for certificate
+    local domain
+    read -p "Domain name for SSL certificate [monitor.example.com]: " domain
+    if [ -z "$domain" ]; then
+        domain="monitor.example.com"
+    fi
+
+    get_letsencrypt_cert "$domain"
+
+    local ssl_cert ssl_key
+    if [ -d "/etc/letsencrypt/live/$domain" ]; then
+        ssl_cert="/etc/letsencrypt/live/$domain/fullchain.pem"
+        ssl_key="/etc/letsencrypt/live/$domain/privkey.pem"
+    else
+        ssl_cert="/etc/nginx/ssl/komari.crt"
+        ssl_key="/etc/nginx/ssl/komari.key"
     fi
 
     cat > /etc/nginx/conf.d/komari.conf << NGINX_EOF
@@ -156,8 +188,8 @@ server {
     listen ${proxy_port} ssl;
     server_name _;
 
-    ssl_certificate /etc/nginx/ssl/komari.crt;
-    ssl_certificate_key /etc/nginx/ssl/komari.key;
+    ssl_certificate $ssl_cert;
+    ssl_certificate_key $ssl_key;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
