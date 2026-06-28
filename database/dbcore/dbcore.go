@@ -16,6 +16,7 @@ import (
 	"github.com/komari-monitor/komari/pkg/config"
 	"github.com/komari-monitor/komari/pkg/migrations"
 	logutil "github.com/komari-monitor/komari/utils/log"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -232,14 +233,19 @@ func GetDBInstance() *gorm.DB {
 				log.Fatalf("Failed to connect to SQLite3 database: %v", err)
 			}
 			log.Printf("Using SQLite database file: %s", flags.DatabaseFile)
-			instance.Exec("PRAGMA wal = ON;")
-			if err := instance.Exec("PRAGMA journal_mode = WAL;").Error; err != nil {
-				log.Printf("Failed to enable WAL mode for SQLite: %v", err)
-			}
+			instance.Exec("PRAGMA journal_mode = WAL;")
 			instance.Exec("PRAGMA synchronous = NORMAL;")
 			instance.Exec("PRAGMA cache_size = -65536;")
 			instance.Exec("PRAGMA temp_store = MEMORY;")
 			instance.Exec("PRAGMA wal_checkpoint(TRUNCATE);")
+		case flags.DatabaseTypePostgres:
+			// PostgreSQL 连接
+			dsn := flags.BuildPostgresDSN()
+			instance, err = gorm.Open(postgres.Open(dsn), logConfig)
+			if err != nil {
+				log.Fatalf("Failed to connect to PostgreSQL database: %v", err)
+			}
+			log.Printf("Using PostgreSQL database: %s@%s:%s/%s", flags.DatabaseUser, flags.DatabaseHost, flags.DatabasePort, flags.DatabaseName)
 		default:
 			log.Fatalf("Unsupported database type: %s (supported: %s)", flags.DatabaseType, flags.SupportedDatabaseTypes())
 		}
@@ -294,7 +300,7 @@ func GetDBInstance() *gorm.DB {
 		}
 
 		// Manually create composite indexes
-		if flags.IsSQLite() {
+		if flags.IsSQLite() || flags.IsPostgres() {
 			instance.Exec("CREATE INDEX IF NOT EXISTS idx_record_client_time ON records(client, time)")
 			instance.Exec("CREATE INDEX IF NOT EXISTS idx_record_lt_client_time ON records_long_term(client, time)")
 			instance.Exec("CREATE INDEX IF NOT EXISTS idx_gpu_record_client_time ON gpu_records(client, time)")

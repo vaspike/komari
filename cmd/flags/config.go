@@ -3,7 +3,8 @@ package flags
 import "strings"
 
 const (
-	DatabaseTypeSQLite = "sqlite"
+	DatabaseTypeSQLite   = "sqlite"
+	DatabaseTypePostgres = "postgres"
 )
 
 var (
@@ -37,5 +38,34 @@ func IsSQLite() bool {
 }
 
 func SupportedDatabaseTypes() string {
-	return DatabaseTypeSQLite
+	return DatabaseTypeSQLite + ", " + DatabaseTypePostgres
+}
+
+func IsPostgres() bool {
+	return NormalizeDatabaseType(DatabaseType) == DatabaseTypePostgres
+}
+
+// BuildPostgresDSN 根据 flags 中的 DatabaseHost/Port/User/Pass/Name 构建 PostgreSQL DSN
+func BuildPostgresDSN() string {
+	// 使用 environment variables or flags
+	host := DatabaseHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := DatabasePort
+	if port == "" {
+		port = "5432"
+	}
+	dsn := "host=" + host + " port=" + port
+	if DatabaseUser != "" {
+		dsn += " user=" + DatabaseUser
+	}
+	if DatabasePass != "" {
+		dsn += " password=" + DatabasePass
+	}
+	if DatabaseName != "" {
+		dsn += " dbname=" + DatabaseName
+	}
+	dsn += " sslmode=disable TimeZone=UTC"
+	return dsn
 }
