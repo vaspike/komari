@@ -14,7 +14,7 @@ type PingTask struct {
 	Id        uint        `json:"id,omitempty" gorm:"primaryKey;autoIncrement"`
 	Weight    int         `json:"weight" gorm:"type:int;not null;default:0;index"`
 	Name      string      `json:"name" gorm:"type:varchar(255);not null;index"`
-	Clients   StringArray `json:"clients" gorm:"type:longtext"`
+	Clients   StringArray `json:"clients" gorm:"type:text"`
 	DefaultOn bool        `json:"default_on" gorm:"column:all_clients;not null;default:false"` // 新加入的服务器是否自动开启此监测；现有服务器不受此字段影响
 	Type      string      `json:"type" gorm:"type:varchar(12);not null;default:'icmp'"`        // icmp tcp http
 	Target    string      `json:"target" gorm:"type:varchar(255);not null"`                    // Ping 目标地址
