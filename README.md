@@ -2,7 +2,11 @@
 
 > This is a community fork adding **PostgreSQL** database support to Komari.
 > Upstream: [komari-monitor/komari](https://github.com/komari-monitor/komari)
-> 
+>
+> 除非你知道你为什么需要此分支的komari而不是主仓库版本的komari(见https://www.nodeseek.com/post-797439-1), 且拥有阅读源码的能力, 否则不建议任何人使用此分支, 请使用[主仓版本](https://github.com/komari-monitor/komari); 
+>
+> Unless you know exactly why you need this branch of Komari instead of the main repository version of Komari, as explained here: https://www.nodeseek.com/post-797439-1, and you are capable of reading the source code, this branch is not recommended for anyone, Please use the main repository version instead: https://github.com/komari-monitor/komari.
+>
 > **Key additions:**
 > - `--db-type postgres` — use PostgreSQL instead of SQLite
 > - `komari migrate --from-sqlite backup.zip` — migrate from SQLite to PostgreSQL
