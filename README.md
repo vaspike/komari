@@ -1,4 +1,13 @@
-# Komari
+# Komari (PostgreSQL Support Fork)
+
+> This is a community fork adding **PostgreSQL** database support to Komari.
+> Upstream: [komari-monitor/komari](https://github.com/komari-monitor/komari)
+> 
+> **Key additions:**
+> - `--db-type postgres` — use PostgreSQL instead of SQLite
+> - `komari migrate --from-sqlite backup.zip` — migrate from SQLite to PostgreSQL
+> - Auto-migration on startup when uploading a SQLite backup to a PG-mode server
+> - Backup/restore works across both database types
 
 ![Badge](https://hitscounter.dev/api/hit?url=https%3A%2F%2Fgithub.com%2Fkomari-monitor%2Fkomari&label=&icon=github&color=%23a370f7&message=&style=flat&tz=UTC)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/komari-monitor/komari)
@@ -34,9 +43,43 @@ Komari is a lightweight, self-hosted server monitoring tool designed to provide 
 
 Available on 1Panel App Store. Install via **App Store > Utilities > Komari**.
 
-### 1. Use the One-click Install Script
+### 1. One-click Install (PG-Support Fork)
 
-Suitable for distributions using systemd (Ubuntu, Debian...).
+```bash
+curl -fsSL https://raw.githubusercontent.com/vaspike/komari/pg-support/install.sh -o install.sh
+chmod +x install.sh
+sudo bash install.sh
+```
+
+Select SQLite (default) or PostgreSQL when prompted, or pre-configure via environment variables:
+
+```bash
+# PostgreSQL mode
+export KOMARI_DB_TYPE=postgres
+export KOMARI_DB_HOST=127.0.0.1
+export KOMARI_DB_PORT=5432
+export KOMARI_DB_USER=komari
+export KOMARI_DB_PASS=yourpassword
+export KOMARI_DB_NAME=komari
+sudo -E bash install.sh
+
+# SQLite mode (default)
+sudo bash install.sh
+```
+
+### 2. Migrate from SQLite to PostgreSQL
+
+```bash
+# Export backup from old SQLite server (via browser, or curl)
+# Then on new PG server:
+export KOMARI_DB_HOST=127.0.0.1 KOMARI_DB_PORT=5432
+export KOMARI_DB_USER=komari KOMARI_DB_PASS=xxx KOMARI_DB_NAME=komari
+komari migrate --from-sqlite backup.zip
+# Then start normally:
+komari server -l 0.0.0.0:25774
+```
+
+### 3. Original Upstream Install (SQLite only)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/komari-monitor/komari/main/install-komari.sh -o install-komari.sh
@@ -44,7 +87,7 @@ chmod +x install-komari.sh
 sudo ./install-komari.sh
 ```
 
-### 2. Docker Deployment
+### 4. Docker Deployment
 
 1. Create a data directory:
    ```bash
@@ -67,7 +110,7 @@ sudo ./install-komari.sh
 > [!NOTE]
 > You can also customize the initial username and password through the environment variables `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
 
-### 3. Binary File Deployment
+### 5. Binary File Deployment
 
 1. Visit Komari's [GitHub Release page](https://github.com/komari-monitor/komari/releases) to download the latest binary for your operating system.
 2. Run Komari:
