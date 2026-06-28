@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -103,6 +104,35 @@ func backupSQLiteTo(destDBPath string) error {
 	return nil
 }
 
+// backupPostgresTo 使用 pg_dump 将 PostgreSQL 数据库导出为 SQL 文件
+func backupPostgresTo(destSQLPath string) error {
+	if err := os.MkdirAll(filepath.Dir(destSQLPath), 0755); err != nil {
+		return fmt.Errorf("failed to create parent directory for pg dump: %v", err)
+	}
+
+	// pg_dump uses PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE env vars
+	cmd := exec.Command("pg_dump",
+		"--no-owner",
+		"--no-privileges",
+		"--inserts",
+		"--file", destSQLPath,
+	)
+	// Pass connection info via environment from the DSN
+	cmd.Env = append(os.Environ(),
+		"PGHOST="+flags.DatabaseHost,
+		"PGPORT="+flags.DatabasePort,
+		"PGUSER="+flags.DatabaseUser,
+		"PGPASSWORD="+flags.DatabasePass,
+		"PGDATABASE="+flags.DatabaseName,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("pg_dump failed: %v\nOutput: %s", err, string(output))
+	}
+	return nil
+}
+
 // DownloadBackup 用于打包 ./data 目录及数据库文件为 zip 并通过 HTTP 下载
 func DownloadBackup(c *gin.Context) {
 	// 1) 创建临时目录
@@ -119,27 +149,42 @@ func DownloadBackup(c *gin.Context) {
 		return
 	}
 
-	// 3) 处理数据库备份 -> 临时目录/komari.db
-	destDB := filepath.Join(tempDir, "komari.db")
-	dbFilePath := flags.DatabaseFile
+	// 3) 处理数据库备份
+	dbType := flags.ApplyDatabaseTypeNormalization()
 
-	if flags.IsSQLite() {
+	if dbType == flags.DatabaseTypeSQLite {
+		// SQLite: VACUUM INTO 导出到 komari.db
+		destDB := filepath.Join(tempDir, "komari.db")
 		if err := backupSQLiteTo(destDB); err != nil {
 			api.RespondError(c, http.StatusInternalServerError, fmt.Sprintf("Error backing up sqlite database: %v", err))
 			return
 		}
-	} else if dbFilePath != "" {
-		// 非 sqlite 的情况：若配置了文件路径且存在，则直接复制（按用户需求仍然将名称固定为 komari.db）
-		if _, err := os.Stat(dbFilePath); err == nil {
-			if err := copyFile(dbFilePath, destDB); err != nil {
-				api.RespondError(c, http.StatusInternalServerError, fmt.Sprintf("Error copying database file: %v", err))
-				return
-			}
-		} else if !os.IsNotExist(err) {
-			api.RespondError(c, http.StatusInternalServerError, fmt.Sprintf("Error stating database file: %v", err))
+	} else if dbType == flags.DatabaseTypePostgres {
+		// PostgreSQL: 使用 pg_dump 导出到 komari.sql
+		destSQL := filepath.Join(tempDir, "komari.sql")
+		if err := backupPostgresTo(destSQL); err != nil {
+			api.RespondError(c, http.StatusInternalServerError, fmt.Sprintf("Error backing up postgres database: %v", err))
 			return
 		}
+	} else {
+		dbFilePath := flags.DatabaseFile
+		if dbFilePath != "" {
+			destDB := filepath.Join(tempDir, "komari.db")
+			if _, err := os.Stat(dbFilePath); err == nil {
+				if err := copyFile(dbFilePath, destDB); err != nil {
+					api.RespondError(c, http.StatusInternalServerError, fmt.Sprintf("Error copying database file: %v", err))
+					return
+				}
+			} else if !os.IsNotExist(err) {
+				api.RespondError(c, http.StatusInternalServerError, fmt.Sprintf("Error stating database file: %v", err))
+				return
+			}
+		}
 	}
+
+	// 写入数据库类型标记文件
+	dbTypeMarkup := filepath.Join(tempDir, "db-type.txt")
+	os.WriteFile(dbTypeMarkup, []byte(dbType), 0644)
 
 	// 4) 开始写出 ZIP（以临时目录为根）
 	backupFileName := fmt.Sprintf("backup-%d.zip", time.Now().UnixMicro())
