@@ -6,7 +6,7 @@ import (
 
 	"github.com/komari-monitor/komari/database/models"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 

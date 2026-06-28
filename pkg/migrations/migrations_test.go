@@ -8,7 +8,7 @@ import (
 
 	"github.com/komari-monitor/komari/database/models"
 	appconfig "github.com/komari-monitor/komari/pkg/config"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 

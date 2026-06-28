@@ -14,7 +14,7 @@ import (
 	"github.com/komari-monitor/komari/pkg/config"
 	"github.com/spf13/cobra"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
