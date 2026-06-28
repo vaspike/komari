@@ -65,7 +65,7 @@ install_postgresql() {
     local os="$(detect_os)"
     case "$os" in
         apt)
-            apt-get update -qq
+            apt-get update -qq 2>/dev/null || log_warn "apt update had warnings (non-critical)"
             apt-get install -y -qq postgresql
             ;;
         yum)
@@ -124,7 +124,7 @@ install_nginx() {
     log_info "Installing Nginx..."
     local os="$(detect_os)"
     case "$os" in
-        apt) apt-get install -y -qq nginx ;;
+        apt) apt-get update -qq 2>/dev/null || true; apt-get install -y -qq nginx ;;
         yum|dnf) "$os" install -y nginx ;;
         apk) apk add nginx ;;
         *) log_warn "Cannot install Nginx. Skipping reverse proxy setup."; return 1 ;;
