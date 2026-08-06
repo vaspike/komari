@@ -46,12 +46,32 @@ func GetGPURecordsByClientAndTime(uuid string, start, end time.Time) ([]models.G
 
 	fourHoursAgo := time.Now().Add(-4*time.Hour - time.Minute)
 
-	var recentRecords []models.GPURecord
+	var longTermRecords []models.GPURecord
+	err := db.Table("gpu_records_long_term").Where("client = ? AND time >= ? AND time <= ?", uuid, start, end).
+		Order("time ASC, device_index ASC").Find(&longTermRecords).Error
+	if err != nil {
+		log.Printf("Error fetching long-term GPU records for client %s between %s and %s: %v", uuid, start, end, err)
+		return gpuRecentRecordsOnly(db, uuid, start, end, fourHoursAgo)
+	}
+
 	recentStart := start
 	if end.After(fourHoursAgo) {
 		if recentStart.Before(fourHoursAgo) {
 			recentStart = fourHoursAgo
 		}
+	}
+	// 与 CPU/load 取数一致: long_term 聚合滞后时,recent 窗口起点对齐到
+	// long_term 最新 15 分钟桶之后,消除图表数据真空
+	if len(longTermRecords) > 0 {
+		latestLongTerm := longTermRecords[len(longTermRecords)-1].Time.ToTime()
+		nextBucket := latestLongTerm.Truncate(15 * time.Minute).Add(15 * time.Minute)
+		if nextBucket.Before(recentStart) {
+			recentStart = nextBucket
+		}
+	}
+
+	var recentRecords []models.GPURecord
+	if recentStart.Before(end) {
 		err := db.Where("client = ? AND time >= ? AND time <= ?", uuid, recentStart, end).
 			Order("time ASC, device_index ASC").Find(&recentRecords).Error
 		if err != nil {
@@ -60,19 +80,31 @@ func GetGPURecordsByClientAndTime(uuid string, start, end time.Time) ([]models.G
 		}
 	}
 
-	var longTermRecords []models.GPURecord
-	err := db.Table("gpu_records_long_term").Where("client = ? AND time >= ? AND time <= ?", uuid, start, end).
-		Order("time ASC, device_index ASC").Find(&longTermRecords).Error
-	if err != nil {
-		log.Printf("Error fetching long-term GPU records for client %s between %s and %s: %v", uuid, start, end, err)
-		return recentRecords, nil
-	}
-
 	// 合并结果 - 不再需要类型转换
 	records = append(records, recentRecords...)
 	records = append(records, longTermRecords...)
 
 	return records, nil
+}
+
+// gpuRecentRecordsOnly 在 long_term 查询失败时回退到仅查 recent 表
+func gpuRecentRecordsOnly(db *gorm.DB, uuid string, start, end, fourHoursAgo time.Time) ([]models.GPURecord, error) {
+	var recentRecords []models.GPURecord
+	recentStart := start
+	if end.After(fourHoursAgo) {
+		if recentStart.Before(fourHoursAgo) {
+			recentStart = fourHoursAgo
+		}
+		if recentStart.Before(end) {
+			err := db.Where("client = ? AND time >= ? AND time <= ?", uuid, recentStart, end).
+				Order("time ASC, device_index ASC").Find(&recentRecords).Error
+			if err != nil {
+				log.Printf("Error fetching recent GPU records for client %s between %s and %s: %v", uuid, recentStart, end, err)
+				return nil, err
+			}
+		}
+	}
+	return recentRecords, nil
 }
 
 func GetLatestRecord(uuid string) (Record []models.Record, err error) {
@@ -95,24 +127,37 @@ func GetRecordsByClientAndTime(uuid string, start, end time.Time) ([]models.Reco
 
 	fourHoursAgo := time.Now().Add(-4*time.Hour - time.Minute)
 
-	var recentRecords []models.Record
+	// 先查 long_term,确定其最新时间(用于对齐 recent 窗口起点,消除聚合滞后造成的图表缺口)
+	var long_term []models.Record
+	err := db.Table("records_long_term").Where("client = ? AND time >= ? AND time <= ?", uuid, start, end).Order("time ASC").Find(&long_term).Error
+	if err != nil {
+		log.Printf("Error fetching long-term records for client %s between %s and %s: %v", uuid, start, end, err)
+		return recentRecordsPlaceholder(db, uuid, start, end, fourHoursAgo)
+	}
+
 	recentStart := start
 	if end.After(fourHoursAgo) {
 		if recentStart.Before(fourHoursAgo) {
 			recentStart = fourHoursAgo
 		}
+	}
+	// 若 long_term 聚合滞后(最新时间早于 fourHoursAgo),把 recent 窗口起点
+	// 对齐到 long_term 最新 15 分钟桶之后,避免 [long_term 最新, fourHoursAgo] 出现数据真空
+	if len(long_term) > 0 {
+		latestLongTerm := long_term[len(long_term)-1].Time.ToTime()
+		nextBucket := latestLongTerm.Truncate(15 * time.Minute).Add(15 * time.Minute)
+		if nextBucket.Before(recentStart) {
+			recentStart = nextBucket
+		}
+	}
+
+	var recentRecords []models.Record
+	if recentStart.Before(end) {
 		err := db.Where("client = ? AND time >= ? AND time <= ?", uuid, recentStart, end).Order("time ASC").Find(&recentRecords).Error
 		if err != nil {
 			log.Printf("Error fetching recent records for client %s between %s and %s: %v", uuid, recentStart, end, err)
 			return nil, err
 		}
-	}
-
-	var long_term []models.Record
-	err := db.Table("records_long_term").Where("client = ? AND time >= ? AND time <= ?", uuid, start, end).Order("time ASC").Find(&long_term).Error
-	if err != nil {
-		log.Printf("Error fetching long-term records for client %s between %s and %s: %v", uuid, start, end, err)
-		return recentRecords, nil
 	}
 
 	if len(long_term) == 0 {
@@ -139,6 +184,25 @@ func GetRecordsByClientAndTime(uuid string, start, end time.Time) ([]models.Reco
 	records = append(records, groupedList...)
 	records = append(records, long_term...)
 	return records, nil
+}
+
+// recentRecordsPlaceholder 在 long_term 查询失败时回退到仅查 recent 表
+func recentRecordsPlaceholder(db *gorm.DB, uuid string, start, end, fourHoursAgo time.Time) ([]models.Record, error) {
+	var recentRecords []models.Record
+	recentStart := start
+	if end.After(fourHoursAgo) {
+		if recentStart.Before(fourHoursAgo) {
+			recentStart = fourHoursAgo
+		}
+		if recentStart.Before(end) {
+			err := db.Where("client = ? AND time >= ? AND time <= ?", uuid, recentStart, end).Order("time ASC").Find(&recentRecords).Error
+			if err != nil {
+				log.Printf("Error fetching recent records for client %s between %s and %s: %v", uuid, recentStart, end, err)
+				return nil, err
+			}
+		}
+	}
+	return recentRecords, nil
 }
 
 func GetAllRecords() ([]models.Record, error) {
